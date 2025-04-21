@@ -6,7 +6,7 @@ einfo() {
     echo "[INFO] $*"
 }
 
-export K3S_IMAGE_NAME=1.31.6
+export K3S_IMAGE_NAME=1.31.6+k3s1
 
 export K3S_BINARY_NAME=v$(echo $K3S_IMAGE_NAME | sed 's/-/+/g')
 
@@ -16,12 +16,12 @@ export K3S_IMAGE_URL=https://github.com/k3s-io/k3s/releases/download/${K3S_BINAR
 
 apt-get update
 
-apt-get install -y debootstrap qemu-system-x86 qemu-utils parted e2fsprogs dosfstools grub-pc-bin grub-common
+apt-get install -y debootstrap qemu-system-x86 qemu-utils parted e2fsprogs dosfstools grub-pc-bin grub-common udev
 
 
 IMAGE_FILE="debian.img"
 
-IMAGE_SIZE="4G"
+IMAGE_SIZE="6G"
 
 MOUNT_DIR="/mnt/debian"
 
@@ -301,6 +301,33 @@ LITE_EOF
     echo "Post-installation complete. System is ready."
 
 OUTER
+
+# Step 9: Enable serial console in GRUB
+
+cat > "$MOUNT_DIR/tmp/update-grub.sh" <<'EOF'
+#!/bin/bash
+
+echo "[*] Updating GRUB config for serial and console output..."
+
+GRUB_FILE="/etc/default/grub"
+
+if [ ! -f "$GRUB_FILE" ]; then
+    echo "[!] GRUB config not found at $GRUB_FILE"
+    exit 1
+fi
+
+cp "$GRUB_FILE" "${GRUB_FILE}.bak"
+
+sed -i 's/^GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200n8"/' "$GRUB_FILE"
+sed -i 's/^#GRUB_TERMINAL=/GRUB_TERMINAL=/' "$GRUB_FILE"
+
+update-grub
+
+echo "[+] GRUB configuration updated."
+EOF
+
+chmod +x "$MOUNT_DIR/tmp/update-grub.sh"
+chroot "$MOUNT_DIR" /tmp/update-grub.sh
 
 # Step 10: Cleanup
 

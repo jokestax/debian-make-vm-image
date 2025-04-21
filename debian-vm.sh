@@ -322,11 +322,3 @@ EOF
 
 chmod +x "$MOUNT_DIR/tmp/update-grub.sh"
 chroot "$MOUNT_DIR" /tmp/update-grub.sh
-
-# Step 10: Cleanup
-
-umount "$MOUNT_DIR/dev" "$MOUNT_DIR/sys" "$MOUNT_DIR/proc"
-
-umount "$MOUNT_DIR"
-
-losetup -d "$LOOP_DEV"

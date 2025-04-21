@@ -6,22 +6,22 @@ einfo() {
     echo "[INFO] $*"
 }
 
+export K3S_IMAGE_NAME=1.31.6
+
 export K3S_BINARY_NAME=v$(echo $K3S_IMAGE_NAME | sed 's/-/+/g')
 
-export
-K3S_IMAGE_URL=https://github.com/k3s-io/k3s/releases/download/${K3S_BINARY_NAME}/k3s
+export K3S_IMAGE_URL=https://github.com/k3s-io/k3s/releases/download/${K3S_BINARY_NAME}/k3s
 
 # Install dependencies (optional, remove if already installed)
 
 apt-get update
 
-apt-get install -y debootstrap qemu-system-x86 qemu-utils parted
-e2fsprogs dosfstools grub-pc-bin grub-common
+apt-get install -y debootstrap qemu-system-x86 qemu-utils parted e2fsprogs dosfstools grub-pc-bin grub-common
 
 
 IMAGE_FILE="debian.img"
 
-IMAGE_SIZE="2G"
+IMAGE_SIZE="4G"
 
 MOUNT_DIR="/mnt/debian"
 
@@ -29,7 +29,8 @@ DEBIAN_VERSION="bookworm"
 
 MIRROR="http://deb.debian.org/debian"
 
-cd /workdir
+mkdir workdir
+cd workdir
 
 # Step 1: Create image
 
@@ -53,11 +54,9 @@ LOOP_DEV=$(losetup --find --show --partscan "$IMAGE_FILE")
 
 PART_DEV="${LOOP_DEV}p1"
 
-
 # Wait for partition to be ready
 
 sleep 2
-
 
 # Step 4: Format partition
 
@@ -127,17 +126,15 @@ chroot "$MOUNT_DIR" apt-get install -y linux-image-amd64 grub-pc
 
 einfo "Installing GRUB to $LOOP_DEV"
 
-chroot "$MOUNT_DIR" grub-install --target=i386-pc --recheck
-"$LOOP_DEV"
+chroot "$MOUNT_DIR" grub-install --target=i386-pc --recheck "$LOOP_DEV"
 
 chroot "$MOUNT_DIR" update-grub
 
-echo "deb http://deb.debian.org/debian stable main contrib non-free
-non-free-firmware" > "$MOUNT_DIR/etc/apt/sources.list"
+echo "deb http://deb.debian.org/debian stable main contrib non-free non-free-firmware" > "$MOUNT_DIR/etc/apt/sources.list"
 
 chroot "$MOUNT_DIR" apt-get update
 
-chroot "$MOUNT_DIR" /bin/bash <<EOF
+chroot "$MOUNT_DIR" /bin/bash <<OUTER
     # Ensure essential environment variables are set
     if [[ -z "${K3S_IMAGE_NAME}" ]]; then
     echo "k3s image variable not set"
@@ -186,15 +183,14 @@ chroot "$MOUNT_DIR" /bin/bash <<EOF
     mkdir -p /opt/cni/bin
     curl -L "https://github.com/containernetworking/plugins/releases/download/v1.5.1/cni-plugins-linux-amd64-v1.5.1.tgz" | tar -C /opt/cni/bin -xz
 
-    # Setup logrotate for k3s logs
-    tee /etc/logrotate.d/k3s <<EOF
-    /var/log/k3s.log {
-        missingok
-        nocreate
-        size 50M
-        rotate 4
-    }
-    'EOF'
+    cat > /etc/logrotate.d/k3s <<LOGROTATE_EOF
+/var/log/k3s.log {
+    missingok
+    nocreate
+    size 50M
+    rotate 4
+}
+LOGROTATE_EOF
 
     # Enable cloud-init services
     systemctl enable cloud-init
@@ -203,12 +199,13 @@ chroot "$MOUNT_DIR" /bin/bash <<EOF
     sed -i 's/#UsePAM yes/UsePAM yes/g' /etc/ssh/sshd_config
     sed -i 's/AllowTcpForwarding no/AllowTcpForwarding yes/g' /etc/ssh/sshd_config
     touch /etc/pam.d/sshd
-    cat > /etc/pam.d/sshd <<EOF
-    auth      include   system-login
-    account   include   system-login
-    password  include   system-login
-    session   include   system-login
-    'EOF'
+    cat > /etc/pam.d/sshd <<PAM_EOF
+auth      include   system-login
+account   include   system-login
+password  include   system-login
+session   include   system-login
+PAM_EOF
+
     systemctl enable ssh
 
     # SSH Root Access and Password Authentication
@@ -219,18 +216,18 @@ chroot "$MOUNT_DIR" /bin/bash <<EOF
 
     # Setup cgroups v2
     echo "cgroup2 /sys/fs/cgroup cgroup2 defaults 0 0" >> /etc/fstab
-    cat > /etc/cgconfig.conf <<EOF
-    mount {
-    cpuacct = /cgroup/cpuacct;
-    memory = /cgroup/memory;
-    devices = /cgroup/devices;
-    freezer = /cgroup/freezer;
-    net_cls = /cgroup/net_cls;
-    blkio = /cgroup/blkio;
-    cpuset = /cgroup/cpuset;
-    cpu = /cgroup/cpu;
-    }
-    'EOF'
+    cat > /etc/cgconfig.conf <<CGROUP_EOF
+mount {
+cpuacct = /cgroup/cpuacct;
+memory = /cgroup/memory;
+devices = /cgroup/devices;
+freezer = /cgroup/freezer;
+net_cls = /cgroup/net_cls;
+blkio = /cgroup/blkio;
+cpuset = /cgroup/cpuset;
+cpu = /cgroup/cpu;
+}
+CGROUP_EOF
 
     # Kernel parameters for cgroups
     echo "GRUB_CMDLINE_LINUX_DEFAULT=\"cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory\"" >> /etc/default/grub
@@ -242,21 +239,21 @@ chroot "$MOUNT_DIR" /bin/bash <<EOF
     chmod +x /usr/local/bin/k3s
 
     # Setup k3s systemd service
-    cat > /etc/systemd/system/k3s.service <<EOF
-    [Unit]
-    Description=K3s
-    After=network.target
+    cat > /etc/systemd/system/k3s.service <<K3S_EOF
+[Unit]
+Description=K3s
+After=network.target
 
-    [Service]
-    ExecStart=/usr/local/bin/k3s server --kubelet-arg="kube-reserved=cpu=250m,memory=500Mi,ephemeral-storage=2Gi"
-    Restart=always
-    LimitNOFILE=1048576
-    LimitNPROC=infinity
-    TimeoutStartSec=0
+[Service]
+ExecStart=/usr/local/bin/k3s server --kubelet-arg="kube-reserved=cpu=250m,memory=500Mi,ephemeral-storage=2Gi"
+Restart=always
+LimitNOFILE=1048576
+LimitNPROC=infinity
+TimeoutStartSec=0
 
-    [Install]
-    WantedBy=multi-user.target
-    'EOF'
+[Install]
+WantedBy=multi-user.target
+K3S_EOF
 
     # Enable and start k3s
     systemctl enable k3s
@@ -270,20 +267,20 @@ chroot "$MOUNT_DIR" /bin/bash <<EOF
     rm /tmp/litestream.tgz
 
     # Litestream systemd service
-    cat > /etc/systemd/system/litestream.service <<EOF
-    [Unit]
-    Description=Litestream Replication
-    After=network.target
+    cat > /etc/systemd/system/litestream.service <<LITE_EOF
+[Unit]
+Description=Litestream Replication
+After=network.target
 
-    [Service]
-    ExecStart=/usr/bin/litestream replicate
-    Restart=always
-    StandardOutput=syslog
-    StandardError=syslog
+[Service]
+ExecStart=/usr/bin/litestream replicate
+Restart=always
+StandardOutput=syslog
+StandardError=syslog
 
-    [Install]
-    WantedBy=multi-user.target
-    'EOF'
+[Install]
+WantedBy=multi-user.target
+LITE_EOF
 
     # Enable and start Litestream
     systemctl enable litestream
@@ -302,7 +299,8 @@ chroot "$MOUNT_DIR" /bin/bash <<EOF
     # Configure BPF
     echo "bpffs /sys/fs/bpf bpf defaults,shared 0 0" >> /etc/fstab
     echo "Post-installation complete. System is ready."
-EOF
+
+OUTER
 
 # Step 10: Cleanup
 

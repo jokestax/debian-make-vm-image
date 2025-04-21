@@ -92,17 +92,12 @@ ROOT_UUID=$(blkid -s UUID -o value "${LOOP_DEV}p1")
 echo "UUID=$ROOT_UUID / ext4 defaults 0 1" > "$MOUNT_DIR/etc/fstab"
 
 cat > "$MOUNT_DIR/etc/network/interfaces" <<EOF
-
 auto lo
-
 iface lo inet loopback
 
-auto eth0
-
-iface eth0 inet dhcp
-
+auto ens3
+iface ens3 inet dhcp
 EOF
-
 
 # Step 8: Prepare for chroot
 
@@ -111,7 +106,6 @@ mount --bind /dev "$MOUNT_DIR/dev"
 mount --bind /sys "$MOUNT_DIR/sys"
 
 mount --bind /proc "$MOUNT_DIR/proc"
-
 
 # Step 9: Install kernel and GRUB
 

@@ -299,25 +299,38 @@ OUTER
 # Step 9: Enable serial console in GRUB
 
 cat > "$MOUNT_DIR/tmp/update-grub.sh" <<'EOF'
-#!/bin/bash
+    #!/bin/bash
 
-echo "[*] Updating GRUB config for serial and console output..."
+    echo "[*] Updating GRUB config for serial and console output..."
 
-GRUB_FILE="/etc/default/grub"
+    GRUB_FILE="/etc/default/grub"
 
-if [ ! -f "$GRUB_FILE" ]; then
-    echo "[!] GRUB config not found at $GRUB_FILE"
-    exit 1
-fi
+    if [ ! -f "$GRUB_FILE" ]; then
+        echo "[!] GRUB config not found at $GRUB_FILE"
+        exit 1
+    fi
 
-cp "$GRUB_FILE" "${GRUB_FILE}.bak"
+    cp "$GRUB_FILE" "${GRUB_FILE}.bak"
 
-sed -i 's/^GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200n8"/' "$GRUB_FILE"
-sed -i 's/^#GRUB_TERMINAL=/GRUB_TERMINAL=/' "$GRUB_FILE"
+    sed -i 's/^GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200n8"/' "$GRUB_FILE"
 
-update-grub
+    if grep -q "^#GRUB_TERMINAL=" "$GRUB_FILE"; then
+        sed -i 's/^#GRUB_TERMINAL=.*/GRUB_TERMINAL="console serial"/' "$GRUB_FILE"
+    elif grep -q "^GRUB_TERMINAL=" "$GRUB_FILE"; then
+        sed -i 's/^GRUB_TERMINAL=.*/GRUB_TERMINAL="console serial"/' "$GRUB_FILE"
+    else
+        echo 'GRUB_TERMINAL="console serial"' >> "$GRUB_FILE"
+    fi
 
-echo "[+] GRUB configuration updated."
+    if grep -q "^GRUB_SERIAL_COMMAND=" "$GRUB_FILE"; then
+        sed -i 's/^GRUB_SERIAL_COMMAND=.*/GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"/' "$GRUB_FILE"
+    else
+        echo 'GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"' >> "$GRUB_FILE"
+    fi
+
+    update-grub
+
+    echo "[+] GRUB configuration updated for serial console."
 EOF
 
 chmod +x "$MOUNT_DIR/tmp/update-grub.sh"
